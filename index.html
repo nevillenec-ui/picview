@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Dreamparty Picviewer</title>
+  <title>Dreamparty Catalog</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { background-color: #111; color: #eee; font-family: sans-serif; }
 
     /* 顶部按钮区 */
-    .header { display: flex; justify-content: center; align-items: center; gap: 15px; padding: 20px; }
-    .path { color: #888; font-size: 14px; word-break: break-all; }
+    .header { display: flex; justify-content: center; align-items: center; gap: 15px; padding: 20px; flex-wrap: wrap; }
+    .path { color: #888; font-size: 14px; word-break: break-all; text-align: center; }
     button { background: #333; color: #fff; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-size: 14px; transition: 0.3s;}
     button:hover { background: #555; }
     button:disabled { background: #222; color: #666; cursor: not-allowed; }
@@ -20,7 +20,7 @@
     .grid img.photo { width: 100%; height: auto; border-radius: 8px; background: #222; transition: transform 0.3s; cursor: pointer; display: block; }
     .grid img.photo:hover { transform: scale(1.03); }
 
-    /* 目录卡片 */
+    /* 相册卡片 */
     .folder { display: flex; flex-direction: column; background: #1c1c1c; border-radius: 8px; overflow: hidden; cursor: pointer; transition: transform 0.3s, background 0.3s; }
     .folder:hover { transform: scale(1.03); background: #252525; }
     .folder .cover { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; display: block; background: #222; }
@@ -34,20 +34,15 @@
 <body>
 
   <div class="header">
-    <button id="back" hidden>&lsaquo; Back</button>
-    <span class="path" id="path">All Pics</span>
-    <button id="prev" disabled>Previous</button>
-    <button id="next">Next</button>
+    <button id="back" hidden>&lsaquo; Album</button>
+    <span class="path" id="path">All Albums</span>
+    <button id="prev" hidden disabled>Previous</button>
+    <button id="next" hidden>Next</button>
   </div>
   <div class="grid" id="grid"></div>
 
   <script>
     const FOLDER_ICON = '<svg viewBox="0 0 24 24" width="42" height="42" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
-
-    let prefixHistory = [];   // 目录返回栈
-    let currentPrefix = '';   // 当前目录（'' 表示根目录）
-    let cursorStack = [];     // 当前目录内的翻页栈
-    let currentCursor = null;
 
     const grid = document.getElementById("grid");
     const backBtn = document.getElementById("back");
@@ -55,107 +50,177 @@
     const nextBtn = document.getElementById("next");
     const pathEl = document.getElementById("path");
 
-    async function loadPage(cursor) {
+    let albums = [];
+    let current = null;     // { albumIndex, cursor, page }
+    let history = [];       // 浏览历史，Prev 精确回退
+    let nextCursor = null;
+    let busy = false;
+
+    // ---------- 相册列表 ----------
+    async function loadHome() {
+      current = null;
+      history = [];
+      nextCursor = null;
+      backBtn.hidden = true;
+      prevBtn.hidden = true;
+      nextBtn.hidden = true;
+      pathEl.textContent = 'All album';
       grid.innerHTML = "<div class='loading'>Loading...</div>";
+
+      try {
+        const res = await fetch('/api/albums');
+        if (!res.ok) throw new Error(`API 请求失败，状态码: ${res.status}`);
+        const data = await res.json();
+        albums = data.albums || [];
+        grid.innerHTML = '';
+
+        if (albums.length === 0) {
+          grid.innerHTML = "<div class='loading'>No album</div>";
+          return;
+        }
+
+        albums.forEach((album, index) => {
+          const card = document.createElement('div');
+          card.className = 'folder';
+
+          if (album.cover) {
+            const cover = document.createElement('img');
+            cover.className = 'cover';
+            cover.src = album.cover;
+            cover.alt = album.name;
+            cover.loading = 'lazy';
+            card.appendChild(cover);
+          } else {
+            const iconWrap = document.createElement('div');
+            iconWrap.className = 'icon-wrap';
+            iconWrap.innerHTML = FOLDER_ICON;
+            card.appendChild(iconWrap);
+          }
+
+          const name = document.createElement('span');
+          name.className = 'name';
+          name.textContent = album.name;
+          card.appendChild(name);
+
+          card.addEventListener('click', () => enterAlbum(index));
+          grid.appendChild(card);
+        });
+      } catch (err) {
+        console.error(err);
+        grid.innerHTML = `<div class='loading' style='color:red'>Load failed: ${err.message}</div>`;
+      }
+    }
+
+    // ---------- 相册浏览 ----------
+    function enterAlbum(index) {
+      current = { albumIndex: index, cursor: null, page: 1 };
+      history = [];
+      renderState();
+    }
+
+    async function fetchPage(state) {
+      const params = new URLSearchParams({ limit: 24, deep: 1 });
+      const prefix = albums[state.albumIndex].prefix;
+      if (prefix) params.set('prefix', prefix);
+      if (state.cursor) params.set('cursor', state.cursor);
+
+      const res = await fetch('/api/list?' + params.toString());
+      if (!res.ok) throw new Error(`API 请求失败，状态码: ${res.status}`);
+      return res.json();
+    }
+
+    async function renderState() {
+      if (!current) return;
+      if (busy) return;
+      busy = true;
+      backBtn.hidden = false;
+      prevBtn.hidden = false;
+      nextBtn.hidden = false;
       prevBtn.disabled = true;
       nextBtn.disabled = true;
 
+      const album = albums[current.albumIndex];
+      grid.innerHTML = `<div class='loading'>Loading ${album.name}...</div>`;
+
       try {
-        const params = new URLSearchParams({ limit: 24 });
-        if (currentPrefix) params.set("prefix", currentPrefix);
-        if (cursor) params.set("cursor", cursor);
+        let data = await fetchPage(current);
 
-        const res = await fetch('/api/list?' + params.toString());
-        if (!res.ok) throw new Error(`API 请求失败，状态码: ${res.status}`);
-        const data = await res.json();
+        // 空相册自动跳到下一个相册（最多绕一圈，避免死循环）
+        let skipped = 0;
+        while (
+          data.images.length === 0 &&
+          !data.truncated &&
+          albums.length > 1 &&
+          skipped < albums.length
+        ) {
+          current = {
+            albumIndex: (current.albumIndex + 1) % albums.length,
+            cursor: null,
+            page: 1,
+          };
+          skipped++;
+          data = await fetchPage(current);
+        }
 
-        grid.innerHTML = "";
+        nextCursor = data.truncated ? data.cursor : null;
+        grid.innerHTML = '';
 
-        // 目录卡片只在每一层的第一页显示
-        if (!cursor) {
-          for (const p of data.prefixes || []) {
-            const card = document.createElement("div");
-            card.className = "folder";
-            if (p.cover) {
-              const cover = document.createElement("img");
-              cover.className = "cover";
-              cover.src = p.cover;
-              cover.alt = p.name;
-              cover.loading = "lazy";
-              card.appendChild(cover);
-            } else {
-              const iconWrap = document.createElement("div");
-              iconWrap.className = "icon-wrap";
-              iconWrap.innerHTML = FOLDER_ICON;
-              card.appendChild(iconWrap);
-            }
-            const name = document.createElement("span");
-            name.className = "name";
-            name.textContent = p.name;
-            card.appendChild(name);
-            card.addEventListener("click", () => openFolder(p.prefix));
-            grid.appendChild(card);
-          }
+        if (data.images.length === 0) {
+          grid.innerHTML = "<div class='loading'>No pics。</div>";
         }
 
         for (const img of data.images) {
-          const imgEl = document.createElement("img");
-          imgEl.className = "photo";
+          const imgEl = document.createElement('img');
+          imgEl.className = 'photo';
           imgEl.src = img.url;
           imgEl.alt = img.key;
-          imgEl.loading = "lazy";
+          imgEl.loading = 'lazy';
           grid.appendChild(imgEl);
-        }
-
-        currentCursor = data.truncated ? data.cursor : null;
-
-        if (grid.children.length === 0) {
-          grid.innerHTML = "<div class='loading'>这里还没有图片。</div>";
         }
       } catch (err) {
         console.error(err);
         grid.innerHTML = `<div class='loading' style='color:red'>Load failed: ${err.message}</div>`;
       } finally {
-        pathEl.textContent = currentPrefix || 'All Pics';
-        backBtn.hidden = prefixHistory.length === 0;
-        prevBtn.disabled = cursorStack.length === 0;
-        nextBtn.disabled = !currentCursor;
+        busy = false;
+        const album = albums[current.albumIndex];
+        const pos = `${current.albumIndex + 1}/${albums.length}`;
+        const pageText = current.page > 1 ? ` · Page ${current.page} ` : '';
+        pathEl.textContent = `${album.name}（${pos}）${pageText}`;
+        prevBtn.disabled = history.length === 0;
+        nextBtn.disabled = false; // 可循环，永远能继续
+        window.scrollTo({ top: 0, behavior: 'smooth' });
       }
     }
 
-    function openFolder(prefix) {
-      prefixHistory.push(currentPrefix);
-      currentPrefix = prefix;
-      cursorStack = [];
-      currentCursor = null;
-      loadPage(null);
+    // 下一张/下一相册：相册内翻页，翻完自动进入下一个相册，最后一个再回到第一个
+    async function goNext() {
+      if (busy || !current) return;
+      if (nextCursor) {
+        history.push({ ...current });
+        current = { ...current, cursor: nextCursor, page: current.page + 1 };
+      } else {
+        history.push({ ...current });
+        current = {
+          albumIndex: (current.albumIndex + 1) % albums.length,
+          cursor: null,
+          page: 1,
+        };
+      }
+      await renderState();
     }
 
-    // 返回上一级目录
-    backBtn.addEventListener("click", () => {
-      currentPrefix = prefixHistory.pop() || '';
-      cursorStack = [];
-      currentCursor = null;
-      loadPage(null);
-    });
+    // 上一页/上一相册：弹出历史快照，精确定位回之前的位置
+    async function goPrev() {
+      if (busy || history.length === 0) return;
+      current = { ...history.pop() };
+      await renderState();
+    }
 
-    // 下一页按钮
-    nextBtn.addEventListener("click", () => {
-      if (!currentCursor) return;
-      cursorStack.push(currentCursor);
-      loadPage(currentCursor);
-    });
+    backBtn.addEventListener('click', loadHome);
+    nextBtn.addEventListener('click', goNext);
+    prevBtn.addEventListener('click', goPrev);
 
-    // 上一页按钮
-    prevBtn.addEventListener("click", () => {
-      if (cursorStack.length === 0) return;
-      cursorStack.pop();
-      const prevCursor = cursorStack.length > 0 ? cursorStack[cursorStack.length - 1] : null;
-      loadPage(prevCursor);
-    });
-
-    // 初始加载
-    loadPage(null);
+    loadHome();
   </script>
 </body>
 </html>
