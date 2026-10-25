@@ -22,13 +22,47 @@ export async function onRequestGet(context) {
     const limit = Math.min(parseInt(url.searchParams.get('limit'), 10) || 24, 100);
     const cursor = url.searchParams.get('cursor') || undefined;
     const prefix = url.searchParams.get('prefix') || '';
+    // deep=1：递归列出该相册下所有层级的图片（不带 delimiter）
+    const deep = url.searchParams.get('deep') === '1';
 
-    const list = await context.env.IMG_BUCKET.list({
-      limit,
-      cursor,
-      prefix,
-      delimiter: '/',
-    });
+    const options = { limit, cursor, prefix };
+
+    if (!deep) {
+      // 目录浏览模式：把子目录聚合成 prefixes
+      const list = await context.env.IMG_BUCKET.list({ ...options, delimiter: '/' });
+
+      const images = list.objects
+        .filter(o => !o.key.endsWith('/') && IMG_RE.test(o.key))
+        .map(o => ({
+          key: o.key,
+          size: o.size,
+          uploaded: o.uploaded,
+          url: toUrl(o.key),
+        }));
+
+      // 为每个子目录取一张封面（目录里的第一张图片）
+      const prefixes = await Promise.all(
+        (list.delimitedPrefixes || []).map(async p => {
+          const sub = await context.env.IMG_BUCKET.list({ prefix: p, limit: 10 });
+          const coverObj = sub.objects.find(o => !o.key.endsWith('/') && IMG_RE.test(o.key));
+          return {
+            prefix: p,
+            name: p.replace(/\/$/, '').split('/').pop(),
+            cover: coverObj ? toUrl(coverObj.key) : null,
+          };
+        })
+      );
+
+      return json({
+        prefixes,
+        images,
+        truncated: list.truncated,
+        cursor: list.truncated ? list.cursor : null,
+      });
+    }
+
+    // 相册浏览模式：相册内所有层级的图片按 key 顺序连续翻页
+    const list = await context.env.IMG_BUCKET.list(options);
 
     const images = list.objects
       .filter(o => !o.key.endsWith('/') && IMG_RE.test(o.key))
@@ -39,21 +73,8 @@ export async function onRequestGet(context) {
         url: toUrl(o.key),
       }));
 
-    // 为每个子目录取一张封面（目录里的第一张图片）
-    const prefixes = await Promise.all(
-      (list.delimitedPrefixes || []).map(async p => {
-        const sub = await context.env.IMG_BUCKET.list({ prefix: p, limit: 10 });
-        const coverObj = sub.objects.find(o => !o.key.endsWith('/') && IMG_RE.test(o.key));
-        return {
-          prefix: p,
-          name: p.replace(/\/$/, '').split('/').pop(),
-          cover: coverObj ? toUrl(coverObj.key) : null,
-        };
-      })
-    );
-
     return json({
-      prefixes,
+      prefixes: [],
       images,
       truncated: list.truncated,
       cursor: list.truncated ? list.cursor : null,
