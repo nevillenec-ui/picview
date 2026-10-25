@@ -4,7 +4,6 @@ function json(data, status = 200) {
     headers: { 'Content-Type': 'application/json; charset=utf-8' },
   });
 }
-
 export async function onRequestGet(context) {
   try {
     if (!context.env.IMG_BUCKET) {
