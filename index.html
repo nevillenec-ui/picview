@@ -29,6 +29,9 @@
 
     /* 加载状态 */
     .loading { text-align: center; padding: 40px; color: #888; grid-column: 1 / -1; }
+
+    /* 底部翻页区 */
+    .footer { display: flex; justify-content: center; gap: 15px; padding: 0 20px 48px; }
   </style>
 </head>
 <body>
@@ -41,6 +44,11 @@
   </div>
   <div class="grid" id="grid"></div>
 
+  <div class="footer" id="footer" hidden>
+    <button id="prev-bottom" disabled>Previous</button>
+    <button id="next-bottom">Next</button>
+  </div>
+
   <script>
     const FOLDER_ICON = '<svg viewBox="0 0 24 24" width="42" height="42" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
 
@@ -49,6 +57,22 @@
     const prevBtn = document.getElementById("prev");
     const nextBtn = document.getElementById("next");
     const pathEl = document.getElementById("path");
+    const footer = document.getElementById("footer");
+    const prevBottomBtn = document.getElementById("prev-bottom");
+    const nextBottomBtn = document.getElementById("next-bottom");
+
+    // 顶部与底部的翻页按钮始终同步状态
+    function setNav(hidden, prevDisabled, nextDisabled) {
+      footer.hidden = hidden;
+      [prevBtn, prevBottomBtn].forEach(b => {
+        b.hidden = hidden;
+        b.disabled = prevDisabled;
+      });
+      [nextBtn, nextBottomBtn].forEach(b => {
+        b.hidden = hidden;
+        b.disabled = nextDisabled;
+      });
+    }
 
     let albums = [];
     let current = null;     // { albumIndex, cursor, page }
@@ -62,9 +86,8 @@
       history = [];
       nextCursor = null;
       backBtn.hidden = true;
-      prevBtn.hidden = true;
-      nextBtn.hidden = true;
-      pathEl.textContent = 'All album';
+      setNav(true, true, true);
+      pathEl.textContent = 'All Albums';
       grid.innerHTML = "<div class='loading'>Loading...</div>";
 
       try {
@@ -75,7 +98,7 @@
         grid.innerHTML = '';
 
         if (albums.length === 0) {
-          grid.innerHTML = "<div class='loading'>No album</div>";
+          grid.innerHTML = "<div class='loading'>No pics。</div>";
           return;
         }
 
@@ -134,10 +157,7 @@
       if (busy) return;
       busy = true;
       backBtn.hidden = false;
-      prevBtn.hidden = false;
-      nextBtn.hidden = false;
-      prevBtn.disabled = true;
-      nextBtn.disabled = true;
+      setNav(false, true, true);
 
       const album = albums[current.albumIndex];
       grid.innerHTML = `<div class='loading'>Loading ${album.name}...</div>`;
@@ -186,8 +206,7 @@
         const pos = `${current.albumIndex + 1}/${albums.length}`;
         const pageText = current.page > 1 ? ` · Page ${current.page} ` : '';
         pathEl.textContent = `${album.name}（${pos}）${pageText}`;
-        prevBtn.disabled = history.length === 0;
-        nextBtn.disabled = false; // 可循环，永远能继续
+        setNav(false, history.length === 0, false); // 可循环，Next 永远能继续
         window.scrollTo({ top: 0, behavior: 'smooth' });
       }
     }
@@ -219,6 +238,8 @@
     backBtn.addEventListener('click', loadHome);
     nextBtn.addEventListener('click', goNext);
     prevBtn.addEventListener('click', goPrev);
+    nextBottomBtn.addEventListener('click', goNext);
+    prevBottomBtn.addEventListener('click', goPrev);
 
     loadHome();
   </script>
