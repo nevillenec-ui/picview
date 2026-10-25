@@ -4,6 +4,7 @@ function json(data, status = 200) {
     headers: { 'Content-Type': 'application/json; charset=utf-8' },
   });
 }
+
 export async function onRequestGet(context) {
   try {
     if (!context.env.IMG_BUCKET) {
@@ -28,7 +29,7 @@ export async function onRequestGet(context) {
         key: o.key,
         size: o.size,
         uploaded: o.uploaded,
-        url: `/images/${o.key.split('/').map(encodeURIComponent).join('/')}`,
+        url: `https://pub-b994451de7e14631b2da3e507df4557e.r2.dev/${o.key.split('/').map(encodeURIComponent).join('/')}`,
       }));
 
     return json({
