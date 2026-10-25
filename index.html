@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>R2 Picviewer</title>
+  <title>Dreamparty Picviewer</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { background-color: #111; color: #eee; font-family: sans-serif; }
@@ -16,14 +16,16 @@
     button:disabled { background: #222; color: #666; cursor: not-allowed; }
 
     /* 图片网格区 */
-    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 15px; padding: 0 20px 40px; }
-    .grid img { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; border-radius: 8px; background: #222; transition: transform 0.3s; cursor: pointer; }
-    .grid img:hover { transform: scale(1.05); }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 15px; padding: 0 20px 40px; align-items: start; }
+    .grid img.photo { width: 100%; height: auto; border-radius: 8px; background: #222; transition: transform 0.3s; cursor: pointer; display: block; }
+    .grid img.photo:hover { transform: scale(1.03); }
 
     /* 目录卡片 */
-    .folder { aspect-ratio: 1 / 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: #1c1c1c; border-radius: 8px; cursor: pointer; transition: transform 0.3s, background 0.3s; color: #888; }
-    .folder:hover { transform: scale(1.05); background: #252525; }
-    .folder .name { font-size: 13px; color: #bbb; text-align: center; word-break: break-all; padding: 0 10px; }
+    .folder { display: flex; flex-direction: column; background: #1c1c1c; border-radius: 8px; overflow: hidden; cursor: pointer; transition: transform 0.3s, background 0.3s; }
+    .folder:hover { transform: scale(1.03); background: #252525; }
+    .folder .cover { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; display: block; background: #222; }
+    .folder .icon-wrap { width: 100%; aspect-ratio: 1 / 1; display: flex; align-items: center; justify-content: center; color: #888; }
+    .folder .name { font-size: 13px; color: #bbb; text-align: center; word-break: break-all; padding: 8px 10px; }
 
     /* 加载状态 */
     .loading { text-align: center; padding: 40px; color: #888; grid-column: 1 / -1; }
@@ -32,8 +34,8 @@
 <body>
 
   <div class="header">
-    <button id="back" hidden>&lsaquo; 返回</button>
-    <span class="path" id="path">全部图片</span>
+    <button id="back" hidden>&lsaquo; Back</button>
+    <span class="path" id="path">All Pics</span>
     <button id="prev" disabled>Previous</button>
     <button id="next">Next</button>
   </div>
@@ -54,7 +56,7 @@
     const pathEl = document.getElementById("path");
 
     async function loadPage(cursor) {
-      grid.innerHTML = "<div class='loading'>正在加载...</div>";
+      grid.innerHTML = "<div class='loading'>Loading...</div>";
       prevBtn.disabled = true;
       nextBtn.disabled = true;
 
@@ -72,18 +74,33 @@
         // 目录卡片只在每一层的第一页显示
         if (!cursor) {
           for (const p of data.prefixes || []) {
-            const name = p.replace(/\/$/, '').split('/').pop();
             const card = document.createElement("div");
             card.className = "folder";
-            card.innerHTML = FOLDER_ICON + `<span class="name"></span>`;
-            card.querySelector(".name").textContent = name;
-            card.addEventListener("click", () => openFolder(p));
+            if (p.cover) {
+              const cover = document.createElement("img");
+              cover.className = "cover";
+              cover.src = p.cover;
+              cover.alt = p.name;
+              cover.loading = "lazy";
+              card.appendChild(cover);
+            } else {
+              const iconWrap = document.createElement("div");
+              iconWrap.className = "icon-wrap";
+              iconWrap.innerHTML = FOLDER_ICON;
+              card.appendChild(iconWrap);
+            }
+            const name = document.createElement("span");
+            name.className = "name";
+            name.textContent = p.name;
+            card.appendChild(name);
+            card.addEventListener("click", () => openFolder(p.prefix));
             grid.appendChild(card);
           }
         }
 
         for (const img of data.images) {
           const imgEl = document.createElement("img");
+          imgEl.className = "photo";
           imgEl.src = img.url;
           imgEl.alt = img.key;
           imgEl.loading = "lazy";
@@ -97,9 +114,9 @@
         }
       } catch (err) {
         console.error(err);
-        grid.innerHTML = `<div class='loading' style='color:red'>加载失败: ${err.message}</div>`;
+        grid.innerHTML = `<div class='loading' style='color:red'>Load failed: ${err.message}</div>`;
       } finally {
-        pathEl.textContent = currentPrefix || '全部图片';
+        pathEl.textContent = currentPrefix || 'All Pics';
         backBtn.hidden = prefixHistory.length === 0;
         prevBtn.disabled = cursorStack.length === 0;
         nextBtn.disabled = !currentCursor;
