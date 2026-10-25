@@ -1,8 +1,15 @@
+const PUBLIC_BASE = 'https://pub-b994451de7e14631b2da3e507df4557e.r2.dev';
+const IMG_RE = /\.(png|jpe?g|gif|webp|avif)$/i;
+
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
     headers: { 'Content-Type': 'application/json; charset=utf-8' },
   });
+}
+
+function toUrl(key) {
+  return `${PUBLIC_BASE}/${key.split('/').map(encodeURIComponent).join('/')}`;
 }
 
 export async function onRequestGet(context) {
@@ -24,16 +31,29 @@ export async function onRequestGet(context) {
     });
 
     const images = list.objects
-      .filter(o => !o.key.endsWith('/') && /\.(png|jpe?g|gif|webp|avif)$/i.test(o.key))
+      .filter(o => !o.key.endsWith('/') && IMG_RE.test(o.key))
       .map(o => ({
         key: o.key,
         size: o.size,
         uploaded: o.uploaded,
-        url: `https://pub-b994451de7e14631b2da3e507df4557e.r2.dev/${o.key.split('/').map(encodeURIComponent).join('/')}`,
+        url: toUrl(o.key),
       }));
 
+    // 为每个子目录取一张封面（目录里的第一张图片）
+    const prefixes = await Promise.all(
+      (list.delimitedPrefixes || []).map(async p => {
+        const sub = await context.env.IMG_BUCKET.list({ prefix: p, limit: 10 });
+        const coverObj = sub.objects.find(o => !o.key.endsWith('/') && IMG_RE.test(o.key));
+        return {
+          prefix: p,
+          name: p.replace(/\/$/, '').split('/').pop(),
+          cover: coverObj ? toUrl(coverObj.key) : null,
+        };
+      })
+    );
+
     return json({
-      prefixes: list.delimitedPrefixes || [],
+      prefixes,
       images,
       truncated: list.truncated,
       cursor: list.truncated ? list.cursor : null,
