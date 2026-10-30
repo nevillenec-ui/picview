@@ -36,21 +36,26 @@ export async function onRequestGet(context) {
 
     const albums = await Promise.all(
       prefixes.map(async p => {
-        const sub = await bucket.list({ prefix: p, limit: 20 });
-        const coverObj = sub.objects.find(o => !o.key.endsWith('/') && IMG_RE.test(o.key));
+        const sub = await bucket.list({ prefix: p, limit: 50 });
+        const coverObjs = sub.objects
+          .filter(o => !o.key.endsWith('/') && IMG_RE.test(o.key))
+          .slice(0, 4);
         return {
           prefix: p,
           name: p.replace(/\/$/, ''),
-          cover: coverObj ? toUrl(coverObj.key) : null,
+          covers: coverObjs.map(o => toUrl(o.key)),
         };
       })
     );
 
     // 根目录若有直属图片，作为一个独立相册放在最前面
-    const root = await bucket.list({ limit: 20, delimiter: '/' });
-    const rootCover = root.objects.find(o => !o.key.endsWith('/') && IMG_RE.test(o.key));
-    if (rootCover) {
-      albums.unshift({ prefix: '', name: '根目录', cover: toUrl(rootCover.key) });
+    const root = await bucket.list({ limit: 50, delimiter: '/' });
+    const rootCovers = root.objects
+      .filter(o => !o.key.endsWith('/') && IMG_RE.test(o.key))
+      .slice(0, 4)
+      .map(o => toUrl(o.key));
+    if (rootCovers.length) {
+      albums.unshift({ prefix: '', name: '根目录', covers: rootCovers });
     }
 
     return json({ albums });
