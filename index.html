@@ -24,8 +24,20 @@
     .folder { display: flex; flex-direction: column; background: #1c1c1c; border-radius: 8px; overflow: hidden; cursor: pointer; transition: transform 0.3s, background 0.3s; }
     .folder:hover { transform: scale(1.03); background: #252525; }
     .folder .icon-wrap { width: 100%; aspect-ratio: 1 / 1; display: flex; align-items: center; justify-content: center; color: #888; }
-    .folder .cover { width: 100%; aspect-ratio: 1 / 1; object-fit: contain; display: block; background: #222; }
     .folder .name { font-size: 13px; color: #bbb; text-align: center; word-break: break-all; padding: 8px 10px; }
+
+    /* 封面：单图用自然比例，多图网格用匹配布局的比例，图片均完整显示（contain 不裁剪） */
+    .cover-single { width: 100%; height: auto; display: block; background: #222; }
+    .cover-grid-wrap { width: 100%; position: relative; background: #111; overflow: hidden; }
+    .cover-grid-wrap.n2 { padding-top: 50%; }   /* 2 张横排，比例 2:1 */
+    .cover-grid-wrap.n3 { padding-top: 100%; }  /* 3 张，比例 1:1 */
+    .cover-grid-wrap.n4 { padding-top: 100%; }  /* 4 张 2x2，比例 1:1 */
+    .cover-grid { position: absolute; inset: 0; display: grid; gap: 1px; background: #111; }
+    .cover-grid img { width: 100%; height: 100%; object-fit: contain; display: block; background: #222; }
+    .cover-grid.n2 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr; }
+    .cover-grid.n3 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+    .cover-grid.n3 img:first-child { grid-row: span 2; }
+    .cover-grid.n4 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
 
     /* 加载状态 */
     .loading { text-align: center; padding: 40px; color: #888; grid-column: 1 / -1; }
@@ -53,20 +65,38 @@
   <script>
     const FOLDER_ICON = '<svg viewBox="0 0 24 24" width="42" height="42" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
 
-    // 渲染单张封面图（图片本身可能是 contact sheet）
-    function renderCover(coverUrl) {
-      if (!coverUrl) {
+    // 根据封面图数量生成 1~4 格的缩略图网格
+    function renderCovers(covers) {
+      const urls = (covers || []).slice(0, 4);
+      if (urls.length === 0) {
         const empty = document.createElement('div');
         empty.className = 'icon-wrap';
         empty.innerHTML = FOLDER_ICON;
         return empty;
       }
-      const img = document.createElement('img');
-      img.className = 'cover';
-      img.src = coverUrl;
-      img.loading = 'lazy';
-      img.alt = '';
-      return img;
+      // 1 张：用图片自然比例，不强制正方形
+      if (urls.length === 1) {
+        const img = document.createElement('img');
+        img.className = 'cover-single';
+        img.src = urls[0];
+        img.loading = 'lazy';
+        img.alt = '';
+        return img;
+      }
+      // 2~4 张：按数量选网格比例
+      const wrap = document.createElement('div');
+      wrap.className = `cover-grid-wrap n${urls.length}`;
+      const grid = document.createElement('div');
+      grid.className = `cover-grid n${urls.length}`;
+      urls.forEach(url => {
+        const img = document.createElement('img');
+        img.src = url;
+        img.loading = 'lazy';
+        img.alt = '';
+        grid.appendChild(img);
+      });
+      wrap.appendChild(grid);
+      return wrap;
     }
 
     const grid = document.getElementById("grid");
@@ -159,10 +189,10 @@
           const card = document.createElement('div');
           card.className = 'folder';
 
-          if (album.cover) {
-            card.appendChild(renderCover(album.cover));
+          if (album.covers && album.covers.length) {
+            card.appendChild(renderCovers(album.covers));
           } else {
-            card.appendChild(renderCover(null));
+            card.appendChild(renderCovers([]));
           }
 
           const name = document.createElement('span');
