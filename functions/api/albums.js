@@ -55,7 +55,7 @@ export async function onRequestGet(context) {
       .slice(0, 4)
       .map(o => toUrl(o.key));
     if (rootCovers.length) {
-      albums.unshift({ prefix: '', name: '根目录', covers: rootCovers });
+      albums.unshift({ prefix: '', name: 'Root', covers: rootCovers });
     }
 
     return json({ albums });
