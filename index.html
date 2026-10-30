@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -23,9 +23,17 @@
     /* 相册卡片 */
     .folder { display: flex; flex-direction: column; background: #1c1c1c; border-radius: 8px; overflow: hidden; cursor: pointer; transition: transform 0.3s, background 0.3s; }
     .folder:hover { transform: scale(1.03); background: #252525; }
-    .folder .cover { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; display: block; background: #222; }
     .folder .icon-wrap { width: 100%; aspect-ratio: 1 / 1; display: flex; align-items: center; justify-content: center; color: #888; }
-    .folder .name { font-size: 16px; color: #bbb; text-align: center; word-break: break-all; padding: 8px 10px; }
+    .folder .name { font-size: 13px; color: #bbb; text-align: center; word-break: break-all; padding: 8px 10px; }
+
+    /* 四宫格封面 */
+    .cover-grid { width: 100%; aspect-ratio: 1 / 1; display: grid; gap: 1px; background: #111; overflow: hidden; }
+    .cover-grid img { width: 100%; height: 100%; object-fit: cover; display: block; background: #222; }
+    .cover-grid.n1 { grid-template-columns: 1fr; grid-template-rows: 1fr; }
+    .cover-grid.n2 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr; }
+    .cover-grid.n3 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+    .cover-grid.n3 img:first-child { grid-row: span 2; }
+    .cover-grid.n4 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
 
     /* 加载状态 */
     .loading { text-align: center; padding: 40px; color: #888; grid-column: 1 / -1; }
@@ -39,6 +47,7 @@
   <div class="header">
     <button id="back" hidden>&lsaquo; Albums</button>
     <span class="path" id="path">All Albums</span>
+    <button id="autoplay" hidden>&#9654; Play</button>
     <button id="prev" hidden disabled>Previous</button>
     <button id="next" hidden>Next</button>
   </div>
@@ -52,6 +61,26 @@
   <script>
     const FOLDER_ICON = '<svg viewBox="0 0 24 24" width="42" height="42" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
 
+    // 根据封面图数量生成 1~4 格的缩略图网格
+    function renderCovers(covers) {
+      const urls = (covers || []).slice(0, 4);
+      const grid = document.createElement('div');
+      grid.className = `cover-grid n${urls.length || 1}`;
+      if (urls.length === 0) {
+        grid.classList.add('icon-wrap');
+        grid.innerHTML = FOLDER_ICON;
+        return grid;
+      }
+      urls.forEach(url => {
+        const img = document.createElement('img');
+        img.src = url;
+        img.loading = 'lazy';
+        img.alt = '';
+        grid.appendChild(img);
+      });
+      return grid;
+    }
+
     const grid = document.getElementById("grid");
     const backBtn = document.getElementById("back");
     const prevBtn = document.getElementById("prev");
@@ -60,10 +89,45 @@
     const footer = document.getElementById("footer");
     const prevBottomBtn = document.getElementById("prev-bottom");
     const nextBottomBtn = document.getElementById("next-bottom");
+    const autoplayBtn = document.getElementById("autoplay");
+
+    const AUTOPLAY_INTERVAL = 5000; // 自动播放间隔（毫秒）
+    let autoplayTimer = null;
+
+    function startAutoplay() {
+      stopAutoplay();
+      autoplayBtn.textContent = '\u23F8 Pause';
+      autoplayTimer = setInterval(() => {
+        if (!busy && current) goNext();
+      }, AUTOPLAY_INTERVAL);
+    }
+
+    function stopAutoplay() {
+      if (autoplayTimer) {
+        clearInterval(autoplayTimer);
+        autoplayTimer = null;
+      }
+      autoplayBtn.textContent = '\u25B6 Play';
+    }
+
+    function resetAutoplay() {
+      if (autoplayTimer) {
+        clearInterval(autoplayTimer);
+        autoplayTimer = setInterval(() => {
+          if (!busy && current) goNext();
+        }, AUTOPLAY_INTERVAL);
+      }
+    }
+
+    function toggleAutoplay() {
+      if (autoplayTimer) stopAutoplay();
+      else startAutoplay();
+    }
 
     // 顶部与底部的翻页按钮始终同步状态
     function setNav(hidden, prevDisabled, nextDisabled) {
       footer.hidden = hidden;
+      autoplayBtn.hidden = hidden;
       [prevBtn, prevBottomBtn].forEach(b => {
         b.hidden = hidden;
         b.disabled = prevDisabled;
@@ -85,20 +149,21 @@
       current = null;
       history = [];
       nextCursor = null;
+      stopAutoplay();
       backBtn.hidden = true;
       setNav(true, true, true);
       pathEl.textContent = 'All Albums';
-      grid.innerHTML = "<div class='loading'>Loading...</div>";
+      grid.innerHTML = "<div class='loading'>Loading albums...</div>";
 
       try {
         const res = await fetch('/api/albums');
-        if (!res.ok) throw new Error(`API 请求失败，状态码: ${res.status}`);
+        if (!res.ok) throw new Error(`API request failed with status ${res.status}`);
         const data = await res.json();
         albums = data.albums || [];
         grid.innerHTML = '';
 
         if (albums.length === 0) {
-          grid.innerHTML = "<div class='loading'>No pics。</div>";
+          grid.innerHTML = "<div class='loading'>No albums yet.</div>";
           return;
         }
 
@@ -106,18 +171,10 @@
           const card = document.createElement('div');
           card.className = 'folder';
 
-          if (album.cover) {
-            const cover = document.createElement('img');
-            cover.className = 'cover';
-            cover.src = album.cover;
-            cover.alt = album.name;
-            cover.loading = 'lazy';
-            card.appendChild(cover);
+          if (album.covers && album.covers.length) {
+            card.appendChild(renderCovers(album.covers));
           } else {
-            const iconWrap = document.createElement('div');
-            iconWrap.className = 'icon-wrap';
-            iconWrap.innerHTML = FOLDER_ICON;
-            card.appendChild(iconWrap);
+            card.appendChild(renderCovers([]));
           }
 
           const name = document.createElement('span');
@@ -134,7 +191,7 @@
       }
     }
 
-    // ---------- 相册浏览 ----------
+    // ---------- Album browsing ----------
     function enterAlbum(index) {
       current = { albumIndex: index, cursor: null, page: 1 };
       history = [];
@@ -148,7 +205,7 @@
       if (state.cursor) params.set('cursor', state.cursor);
 
       const res = await fetch('/api/list?' + params.toString());
-      if (!res.ok) throw new Error(`API 请求失败，状态码: ${res.status}`);
+      if (!res.ok) throw new Error(`API request failed with status ${res.status}`);
       return res.json();
     }
 
@@ -186,7 +243,7 @@
         grid.innerHTML = '';
 
         if (data.images.length === 0) {
-          grid.innerHTML = "<div class='loading'>No pics。</div>";
+          grid.innerHTML = "<div class='loading'>No images in this album.</div>";
         }
 
         for (const img of data.images) {
@@ -204,9 +261,9 @@
         busy = false;
         const album = albums[current.albumIndex];
         const pos = `${current.albumIndex + 1}/${albums.length}`;
-        const pageText = current.page > 1 ? ` · Page ${current.page} ` : '';
-        pathEl.textContent = `${album.name}（${pos}）${pageText}`;
-        setNav(false, history.length === 0, false); // 可循环，Next 永远能继续
+        const pageText = current.page > 1 ? ` · Page ${current.page}` : '';
+        pathEl.textContent = `${album.name} (${pos})${pageText}`;
+        setNav(false, history.length === 0, false); // cyclic: Next always available
         window.scrollTo({ top: 0, behavior: 'smooth' });
       }
     }
@@ -214,6 +271,7 @@
     // 下一张/下一相册：相册内翻页，翻完自动进入下一个相册，最后一个再回到第一个
     async function goNext() {
       if (busy || !current) return;
+      resetAutoplay(); // 手动翻页后重置自动播放计时
       if (nextCursor) {
         history.push({ ...current });
         current = { ...current, cursor: nextCursor, page: current.page + 1 };
@@ -231,6 +289,7 @@
     // 上一页/上一相册：弹出历史快照，精确定位回之前的位置
     async function goPrev() {
       if (busy || history.length === 0) return;
+      resetAutoplay(); // 手动翻页后重置自动播放计时
       current = { ...history.pop() };
       await renderState();
     }
@@ -240,6 +299,7 @@
     prevBtn.addEventListener('click', goPrev);
     nextBottomBtn.addEventListener('click', goNext);
     prevBottomBtn.addEventListener('click', goPrev);
+    autoplayBtn.addEventListener('click', toggleAutoplay);
 
     loadHome();
   </script>
